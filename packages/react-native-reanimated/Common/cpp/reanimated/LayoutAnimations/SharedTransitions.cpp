@@ -310,8 +310,9 @@ void LayoutAnimationsProxy::handleProgressTransition(
   }
 
   if (transition_->state == TransitionState::START) {
-    transition_->state = TransitionState::ACTIVE;
-  } else if (transition_->state == TransitionState::END || transition_->state == TransitionState::CANCELLED) {
+    transition_->state = transition_->progress == 1 ? TransitionState::END : TransitionState::ACTIVE;
+  }
+  if (transition_->state == TransitionState::END || transition_->state == TransitionState::CANCELLED) {
     std::vector<RestoreRequest> sources;
     for (const auto &run : activeSharedTransitionRuns()) {
       if (run.driver == SharedTransitionDriver::GESTURE) {
@@ -1495,8 +1496,7 @@ LayoutAnimationsProxy::onTransitionProgress(int tag, double progress, bool isClo
     };
   }
   transition_->progress = progress;
-  if ((transition_->state == TransitionState::START || transition_->state == TransitionState::ACTIVE) &&
-      progress == 1) {
+  if (transition_->state == TransitionState::ACTIVE && progress == 1) {
     transition_->state = TransitionState::END;
   }
   transition_->updated = true;
