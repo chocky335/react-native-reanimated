@@ -344,6 +344,17 @@ describe('Skipped shared transition during native Screen progress', () => {
           scheduleOnRN(record, value);
         });
       const tags = await startGesture(style, 60);
+      const replacementResults: boolean[] = [];
+      const recordReplacement = (value: boolean) =>
+        replacementResults.push(value);
+      const replacement = SharedTransition.reduceMotion(
+        ReduceMotion.Never
+      ).withCallback((value) => {
+        'worklet';
+        scheduleOnRN(recordReplacement, value);
+      });
+      await render(<Screens transitionStyle={replacement} />);
+      await waitForFrames(3);
       expect(await observer().observeParent(tags.source)).toBe(
         tags.originalParent
       );
@@ -366,7 +377,7 @@ describe('Skipped shared transition during native Screen progress', () => {
       }
       if (outcome === 'commit') {
         await render(
-          <Screens transitionStyle={style} sourceScreenMounted={false} />
+          <Screens transitionStyle={replacement} sourceScreenMounted={false} />
         );
       } else {
         await observer().emitScreenGestureCancel(tags.sourceScreen);
@@ -374,6 +385,7 @@ describe('Skipped shared transition during native Screen progress', () => {
       await waitForNotification('skipped-gesture-finished');
       await waitForFrames(3);
       expect(finished).toBe([outcome === 'commit']);
+      expect(replacementResults).toBe([]);
       await expectTargetOpacity(1);
     }
   );
