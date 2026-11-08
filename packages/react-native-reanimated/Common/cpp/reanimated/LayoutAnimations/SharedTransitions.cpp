@@ -442,6 +442,17 @@ void LayoutAnimationsProxy::skipSharedTransition(
   }
 }
 
+bool LayoutAnimationsProxy::isOutsideSurfaceLayoutRoot(const std::shared_ptr<LightNode> &node) const {
+#ifdef ANDROID
+  for (auto ancestor = node; ancestor && ancestor->current.tag != surfaceId_; ancestor = ancestor->parent.lock()) {
+    if (ancestor->current.traits.check(ShadowNodeTraits::Trait::RootNodeKind)) {
+      return true;
+    }
+  }
+#endif
+  return false;
+}
+
 void LayoutAnimationsProxy::filterSharedTransitionStarts(
     const SharedTransitionDriver driver,
     TransactionMeta &transaction,
@@ -451,7 +462,8 @@ void LayoutAnimationsProxy::filterSharedTransitionStarts(
     const auto sourceTag = collected.transition.snapshot[BEFORE].tag;
     const auto config = layoutAnimationsManager_->getSharedTransitionConfig(sourceTag);
     if (config && !layoutAnimationsManager_->shouldReduceSharedTransition(sourceTag) &&
-        !isOffWindow(collected.nodes[BEFORE])) {
+        !isOffWindow(collected.nodes[BEFORE]) && !isOutsideSurfaceLayoutRoot(collected.nodes[BEFORE]) &&
+        !isOutsideSurfaceLayoutRoot(collected.nodes[AFTER])) {
       return false;
     }
     skipSharedTransition(
@@ -1343,7 +1355,9 @@ void LayoutAnimationsProxy::handleSharedTransitionsStart(
     }
     finishCoveredSharedTransitions(afterTopScreen, transaction, propsParserContext);
   } else if (!mutations.empty()) {
-    for (auto &[sharedTag, collectedTransition] : transaction.transitions) {
+    for (auto it = transaction.transitions.begin(); it != transaction.transitions.end();) {
+      const auto current = it++;
+      auto &[sharedTag, collectedTransition] = *current;
       auto &transition = collectedTransition.transition;
       auto &[before, after] = transition.snapshot;
 
@@ -1352,6 +1366,16 @@ void LayoutAnimationsProxy::handleSharedTransitionsStart(
         continue;
       }
       auto &run = *activeRun;
+      const auto &afterNode = collectedTransition.nodes[AFTER];
+      react_native_assert(afterNode && "Shared transition target not found");
+      if (!afterNode) {
+        continue;
+      }
+      if (afterNode != run.target && isOutsideSurfaceLayoutRoot(afterNode)) {
+        transaction.restoreRequests.push_back({sharedTag, afterNode});
+        it = transaction.transitions.erase(current);
+        continue;
+      }
       const auto carrierTag = run.carrier->current.tag;
       const auto phase = layoutAnimationPhase(carrierTag);
       if (phase == LayoutAnimationPhase::NONE) {
@@ -1359,11 +1383,6 @@ void LayoutAnimationsProxy::handleSharedTransitionsStart(
       }
       const auto config = layoutAnimationsManager_->getSharedTransitionConfig(before.tag);
       if (!config) {
-        continue;
-      }
-      const auto &afterNode = collectedTransition.nodes[AFTER];
-      react_native_assert(afterNode && "Shared transition target not found");
-      if (!afterNode) {
         continue;
       }
       if (run.target != afterNode) {
