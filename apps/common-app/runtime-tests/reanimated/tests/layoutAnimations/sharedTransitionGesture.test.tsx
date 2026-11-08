@@ -269,19 +269,24 @@ describe('System reduced motion during native Screen progress', () => {
   );
 });
 
-describe('Skipped shared transition during native Screen progress', () => {
+describe('Shared transition policy during native Screen progress', () => {
   const gestureTest = Platform.OS === 'ios' ? test : test.skip;
-  gestureTest.each([['commit'], ['late cancel']] as const)(
-    'reports a deferred skipped gesture whose END precedes discovery: ${0}',
-    async ([outcome]) => {
+  gestureTest.each([
+    [ReduceMotion.Always, 'commit'],
+    [ReduceMotion.Always, 'late cancel'],
+    [ReduceMotion.Never, 'commit'],
+    [ReduceMotion.Never, 'late cancel'],
+  ] as const)(
+    'reports a deferred gesture whose END precedes discovery: ${0}, ${1}',
+    async ([mode, outcome]) => {
       const results: boolean[] = [];
       const record = (value: boolean) => results.push(value);
-      const style = SharedTransition.reduceMotion(
-        ReduceMotion.Always
-      ).withCallback((value) => {
-        'worklet';
-        scheduleOnRN(record, value);
-      });
+      const style = SharedTransition.reduceMotion(mode).withCallback(
+        (value) => {
+          'worklet';
+          scheduleOnRN(record, value);
+        }
+      );
       await render(<DeferredScreens top={2} transitionStyle={style} />);
       for (const index of [0, 1, 2]) {
         await waitForNotification(`deferred-screen-${index}-appeared`);
@@ -289,6 +294,9 @@ describe('Skipped shared transition during native Screen progress', () => {
       const first = getTestComponent('deferred-screen-0').getTag();
       const second = getTestComponent('deferred-screen-1').getTag();
       const third = getTestComponent('deferred-screen-2').getTag();
+      const target = getTestComponent('deferred-endpoint-0').getTag();
+      const targetParent = await observer().observeParent(target);
+      expect(targetParent !== null).toBe(true);
       const endpoint = getTestComponent('deferred-endpoint-1').getTag();
       const parent = await observer().observeParent(endpoint);
       expect(parent !== null).toBe(true);
@@ -326,6 +334,18 @@ describe('Skipped shared transition during native Screen progress', () => {
       await expectEventually(
         async () => (await visible.getMountedViewProps())?.opacity
       ).toBe(1);
+      await expectEventually(() => observer().observeParent(target)).toBe(
+        targetParent
+      );
+      if (outcome === 'commit') {
+        await expectEventually(() => isViewMountedNatively(endpoint)).toBe(
+          false
+        );
+      } else {
+        await expectEventually(() => observer().observeParent(endpoint)).toBe(
+          parent
+        );
+      }
     }
   );
 
